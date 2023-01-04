@@ -22,7 +22,8 @@ type Arena struct {
 
 func newArena(size int64) *Arena {
 	ret := &Arena{
-		offset: 0,
+		// offset从1起，0作为空指针标识
+		offset: 1,
 		buf:    make([]byte, size),
 	}
 	return ret
@@ -30,6 +31,7 @@ func newArena(size int64) *Arena {
 
 func (a *Arena) allocate(size uint32) uint32 {
 	offset := atomic.AddUint32(&a.offset, size)
+	// todo：扩容不是并发安全的，还是需要加锁
 	if int(offset) > len(a.buf)-int(size) {
 		newBuf := make([]byte, 2*len(a.buf))
 		copy(newBuf, a.buf)
@@ -58,7 +60,35 @@ func (a *Arena) putKey(key []byte) uint32 {
 	return offset
 }
 
-func (a *Arena) putValue(v V)
+func (a *Arena) putValue(v ValueStrcut) uint32 {
+	size := v.EncodeSize()
+	offset := a.allocate(size)
+	v.EncodeValue(a.buf[offset:])
+	return offset
+}
+
+func (a *Arena) getKey(offset uint32, size uint16) []byte {
+	return a.buf[offset : offset+uint32(size)]
+}
+
+func (a *Arena) getValue(offset uint32, size uint32) (v ValueStrcut) {
+	v.DecodeValue(a.buf[offset : offset+size])
+	return
+}
+
+func (a *Arena) getNode(offset uint32) *node {
+	if offset == 0 {
+		return nil
+	}
+	return (*node)(unsafe.Pointer(&a.buf[offset]))
+}
+
+func (a *Arena) getNodeOffset(nd *node) uint32 {
+	if nd == nil {
+		return 0
+	}
+	return uint32(uintptr(unsafe.Pointer(nd)) - uintptr(unsafe.Pointer(&a.buf[0])))
+}
 
 func AssertTrue(b bool) {
 	if !b {
